@@ -8,7 +8,7 @@ module Fluent
 
     config_set_default :buffer_type, 'memory'
     config_set_default :flush_interval, 1
-    config_set_default :buffer_chunk_limit, 7m
+    config_set_default :buffer_chunk_limit, '7m'
 
     config_param :email, :string, default: nil
     config_param :private_key_path, :string, default: nil
@@ -58,7 +58,7 @@ module Fluent
         client.authorization.fetch_access_token!
 
         @cached_client = client
-      elsif @cached_client.expired?
+      elsif @cached_client.authorization.expired?
         @cached_client.authorization.fetch_access_token!
       end
 
@@ -71,18 +71,18 @@ module Fluent
       @pubsub = client().discovered_api('pubsub', 'v1beta2')
     end
 
-    #def format_stream(tag, es)
-    #  super
-    #  buf = ''
-    #  es.each do |time, record|
-    #   buf << record.to_json unless record.empty?
-    #  end
-    #  buf
-    #end
+    def format_stream(tag, es)
+      super
+      buf = ''
+      es.each do |time, record|
+       buf << record.to_msgpack unless record.empty?
+      end
+      buf
+    end
 
     def extract_response_obj(response_body)
-      return nil unless response_obj =~ /^{/
-      JSON.parse(response_obj)
+      return nil unless response_body =~ /^{/
+      JSON.parse(response_body)
     end
 
     def publish(rows)
@@ -96,7 +96,7 @@ module Fluent
       }]
 
       res = client().execute(
-        api_method: pubsub.projects.topics.publish,
+        api_method: @pubsub.projects.topics.publish,
         parameters: {
           topic: topic
         },
@@ -118,7 +118,7 @@ module Fluent
 
     def write(chunk)
       rows = []
-      chunk.each do |row|
+      chunk.msgpack_each do |row|
         rows << row
       end
       publish(rows)
