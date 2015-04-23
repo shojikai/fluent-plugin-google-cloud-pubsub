@@ -68,6 +68,8 @@ module Fluent
     def start
       super
       @cached_client = nil
+      @exist_topic = {}
+      @exist_subscription = {}
       @pubsub = client().discovered_api('pubsub', 'v1beta2')
     end
 
@@ -85,8 +87,111 @@ module Fluent
       JSON.parse(response_body)
     end
 
+    def exist_subscription?(subscription)
+      return true if @exist_subscription[subscription]
+
+      res = client().execute(
+        api_method: @pubsub.projects.subscriptions.get,
+        parameters: {
+          subscription: subscription
+        }
+      )
+
+      unless res.success?
+        unless res.status == 404
+          res_obj = extract_response_obj(res.body)
+          message = res_obj['error']['message'] || res.body
+          log.error "pubsub.projects.subscriptions.get", subscription: subscription, code: res.status, message: message
+        end
+        return false
+      else
+        @exist_subscription[subscription] = 1
+        return true
+      end
+    end
+
+    def create_subscription(subscription, topic)
+      res = client().execute(
+        api_method: @pubsub.projects.subscriptions.create,
+        parameters: {
+          name: subscription
+        },
+        body_object: {
+          topic: topic
+        }
+      )
+
+      unless res.success?
+        res_obj = extract_response_obj(res.body)
+        message = res_obj['error']['message'] || res.body
+        if res.status == 409
+          @exist_subscription[subscription] = 1
+          log.info "pubsub.projects.subscriptions.create", subscription: subscription, code: res.status, message: message
+        else
+          log.error "pubsub.projects.subscriptions.create", subscription: subscription, code: res.status, message: message
+          raise "Failed to create subscription into Google Cloud Pub/Sub"
+        end
+      else
+        @exist_subscription[subscription] = 1
+        log.info "pubsub.projects.subscriptions.create", subscription: subscription, code: res.status
+      end
+    end
+
+    def exist_topic?(topic)
+      return true if @exist_topic[topic]
+
+      res = client().execute(
+        api_method: @pubsub.projects.topics.get,
+        parameters: {
+          topic: topic
+        }
+      )
+
+      unless res.success?
+        unless res.status == 404
+          res_obj = extract_response_obj(res.body)
+          message = res_obj['error']['message'] || res.body
+          log.error "pubsub.projects.topics.get", topic: topic, code: res.status, message: message
+        end
+        return false
+      else
+        @exist_topic[topic] = 1
+        return true
+      end
+    end
+
+    def create_topic(topic)
+      res = client().execute(
+        api_method: @pubsub.projects.topics.create,
+        parameters: {
+          name: topic
+        }
+      )
+
+      unless res.success?
+        res_obj = extract_response_obj(res.body)
+        message = res_obj['error']['message'] || res.body
+        if res.status == 409
+          @exist_topic[topic] = 1
+          log.info "pubsub.projects.topics.create", topic: topic, code: res.status, message: message
+        else
+          log.error "pubsub.projects.topics.create", topic: topic, code: res.status, message: message
+          raise "Failed to create topic into Google Cloud Pub/Sub"
+        end
+      else
+        @exist_topic[topic] = 1
+        log.info "pubsub.projects.topics.create", topic: topic, code: res.status
+      end
+    end
+
     def publish(rows)
       topic = "projects/#{@project}/topics/#{@topic}"
+
+      if @auto_create_topic
+        create_topic(topic) unless exist_topic?(topic)
+        subscription = "projects/#{@project}/subscriptions/#{@topic}"
+        create_subscription(subscription, topic) unless exist_subscription?(subscription)
+      end
 
       messages = [{
         #attributes: {
@@ -106,13 +211,13 @@ module Fluent
       )
 
       res_obj = extract_response_obj(res.body)
-      if res.success?
-        message = res_obj['messageIds'] || res.body
-        log.info "DONE pubsub.projects.topics.publish", topic: topic, code: res.status, message: message
-      else
+      unless res.success?
         message = res_obj['error']['message'] || res.body
         log.error "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message
         raise "Failed to publish into Google Cloud Pub/Sub"
+      else
+        message = res_obj['messageIds'] || res.body
+        log.info "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message
       end
     end
 
