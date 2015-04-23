@@ -13,6 +13,8 @@ Fluentd plugin for Google Cloud Pub/Sub
   project <YOUR PROJECT>                # required
   topic <YOUR TOPIC>                    # required
   auto_create_topic false               # optional [false]
+                                        # A subscription which corresponds to this topic is also created when this option is true.
+                                        # The name of the subscription is the same as the topic.
   request_timeout 60                    # optional [60]
 
   # Configuration of buffered output
