@@ -15,7 +15,9 @@ module Fluent
     config_param :private_key_passphrase, :string, default: 'notasecret'
     config_param :project, :string
     config_param :topic, :string
-    config_param :auto_create_topic, :bool, default: false
+    config_param :subscriptions, :string, default: nil
+    config_param :auto_create_topic, :bool, default: true
+    config_param :auto_create_subscription, :bool, default: true
     config_param :request_timeout, :integer, default: 60
 
     unless method_defined?(:log)
@@ -189,8 +191,18 @@ module Fluent
 
       if @auto_create_topic
         create_topic(topic) unless exist_topic?(topic)
-        subscription = "projects/#{@project}/subscriptions/#{@topic}"
-        create_subscription(subscription, topic) unless exist_subscription?(subscription)
+      end
+
+      if @auto_create_subscription
+        if @subscriptions
+          @subscriptions.split(",").each do |s|
+            subscription = "projects/#{@project}/subscriptions/#{s.strip}"
+            create_subscription(subscription, topic) unless exist_subscription?(subscription)
+          end
+        else
+          subscription = "projects/#{@project}/subscriptions/#{@topic}"
+          create_subscription(subscription, topic) unless exist_subscription?(subscription)
+        end
       end
 
       messages = [{
