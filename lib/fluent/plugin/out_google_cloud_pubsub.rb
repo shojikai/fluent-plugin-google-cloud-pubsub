@@ -229,7 +229,7 @@ module Fluent
         raise "Failed to publish into Google Cloud Pub/Sub"
       else
         message = res_obj['messageIds'] || res.body
-        log.info "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message
+        log.debug "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message
       end
     end
 
