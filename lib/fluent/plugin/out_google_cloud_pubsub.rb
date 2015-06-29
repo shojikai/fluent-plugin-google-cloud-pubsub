@@ -8,13 +8,14 @@ module Fluent
 
     config_set_default :buffer_type, 'memory'
     config_set_default :flush_interval, 1
-    config_set_default :buffer_chunk_limit, '7m'
+    config_set_default :buffer_chunk_limit, '4m'
+    config_set_default :buffer_queue_size, 128
 
     config_param :email, :string, default: nil
     config_param :private_key_path, :string, default: nil
     config_param :private_key_passphrase, :string, default: 'notasecret'
     config_param :project, :string
-    config_param :topic, :string
+    config_param :topics, :string
     config_param :subscriptions, :string, default: nil
     config_param :auto_create_topic, :bool, default: true
     config_param :auto_create_subscription, :bool, default: true
@@ -36,7 +37,7 @@ module Fluent
       raise Fluent::ConfigError, "'email' must be specifed" unless @email
       raise Fluent::ConfigError, "'private_key_path' must be specifed" unless @private_key_path
       raise Fluent::ConfigError, "'project' must be specifed" unless @project
-      raise Fluent::ConfigError, "'topic' must be specifed" unless @topic
+      raise Fluent::ConfigError, "'topic' must be specifed" unless @topics
     end
 
     def client
@@ -73,6 +74,42 @@ module Fluent
       @exist_topic = {}
       @exist_subscription = {}
       @pubsub = client().discovered_api('pubsub', 'v1beta2')
+
+      @topics_list = []
+      @topics.split(",").each do |t|
+        @topics_list.push "projects/#{@project}/topics/#{t}"
+      end
+
+      if @auto_create_topic
+        @topics_list.each do |topic|
+          create_topic(topic) unless exist_topic?(topic)
+        end
+      end
+
+      @subscriptions_list = []
+      if @subscriptions
+        @subscriptions.split(",").each do |s|
+          @subscriptions_list.push "projects/#{@project}/subscriptions/#{s}"
+        end
+      end
+
+      if @auto_create_subscription
+        if @subscriptions_list.empty?
+          @topics_list.each do |topic|
+            subscription = topic.sub(/\/topics\//, '/subscriptions/')
+            create_subscription(subscription, topic) unless exist_subscription?(subscription)
+          end
+        else
+          i = 0
+          @subscriptions_list.each do |subscription|
+            topic = @topics_list[i % @topics_list.length]
+            create_subscription(subscription, topic) unless exist_subscription?(subscription)
+            i += 1
+          end
+        end
+      end
+
+      @topics_mutex = Mutex.new
     end
 
     def format_stream(tag, es)
@@ -186,24 +223,20 @@ module Fluent
       end
     end
 
-    def publish(rows)
-      topic = "projects/#{@project}/topics/#{@topic}"
-
-      if @auto_create_topic
-        create_topic(topic) unless exist_topic?(topic)
-      end
-
-      if @auto_create_subscription
-        if @subscriptions
-          @subscriptions.split(",").each do |s|
-            subscription = "projects/#{@project}/subscriptions/#{s.strip}"
-            create_subscription(subscription, topic) unless exist_subscription?(subscription)
-          end
-        else
-          subscription = "projects/#{@project}/subscriptions/#{@topic}"
-          create_subscription(subscription, topic) unless exist_subscription?(subscription)
+    def select_topic
+      if @topics_list.length == 1
+        @topics_list[0]
+      else
+        @topics_mutex.synchronize do
+          topic = @topics_list.shift
+          @topics_list.push topic
+          topic
         end
       end
+    end
+
+    def publish(rows)
+      topic = select_topic
 
       messages = [{
         #attributes: {
