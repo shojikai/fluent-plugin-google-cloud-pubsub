@@ -113,12 +113,14 @@ module Fluent
     end
 
     def format_stream(tag, es)
-      super
       buf = ''
       es.each do |time, record|
-       buf << record.to_msgpack unless record.empty?
+       unless record.empty?
+        buf = '[' if buf.empty?
+        buf << record.to_json + ","
+       end
       end
-      buf
+      buf.empty? ? buf : buf.chop + ']'
     end
 
     def extract_response_obj(response_body)
@@ -235,14 +237,14 @@ module Fluent
       end
     end
 
-    def publish(rows)
+    def publish(data)
       topic = select_topic
 
       messages = [{
         #attributes: {
         #  key: "value"
         #},
-        data: Base64.encode64(rows.to_json)
+        data: Base64.encode64(data)
       }]
 
       res = client().execute(
@@ -267,11 +269,7 @@ module Fluent
     end
 
     def write(chunk)
-      rows = []
-      chunk.msgpack_each do |row|
-        rows << row
-      end
-      publish(rows)
+      publish(chunk.read)
     end
   end
 end
