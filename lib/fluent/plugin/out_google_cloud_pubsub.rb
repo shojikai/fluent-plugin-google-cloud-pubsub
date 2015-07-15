@@ -238,7 +238,7 @@ module Fluent
 
       data = Base64.encode64(rows.to_json)
 
-      if data.size > @max_payload_size
+      if data.size > @max_payload_size and rows.length > 1
           log.debug "Divide this request because a payload size exceeds the allowable limit.", topic: topic, size: data.size, length: rows.length
           mid = rows.length / 2
           max = rows.length - 1
