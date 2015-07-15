@@ -58,7 +58,7 @@ module Fluent
           signing_key: key
         )
 
-        client.authorization.fetch_access_token!
+        client.authorization.fetch_access_token!(:connection => client.connection)  # Work around certificate verify failed.
 
         @cached_client = client
       elsif @cached_client.authorization.expired?
@@ -115,12 +115,9 @@ module Fluent
     def format_stream(tag, es)
       buf = ''
       es.each do |time, record|
-       unless record.empty?
-        buf = '[' if buf.empty?
-        buf << record.to_json + ","
-       end
+        buf << record.to_msgpack unless record.empty?
       end
-      buf.empty? ? buf : buf.chop + ']'
+      buf
     end
 
     def extract_response_obj(response_body)
@@ -237,14 +234,15 @@ module Fluent
       end
     end
 
-    def publish(data)
+    def publish(rows)
       topic = select_topic
 
+      data = Base64.encode64(rows.to_json)
       messages = [{
         #attributes: {
         #  key: "value"
         #},
-        data: Base64.encode64(data)
+        data: data
       }]
 
       res = client().execute(
@@ -260,16 +258,33 @@ module Fluent
       res_obj = extract_response_obj(res.body)
       unless res.success?
         message = res_obj['error']['message'] || res.body
-        log.error "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message
-        raise "Failed to publish into Google Cloud Pub/Sub"
+        if res.status == 400 and message.to_s =~ /Request payload exceeds the allowable limit/i and rows.length > 1
+          log.warn "Retry to publish because request payload exceeds the allowable limit.", topic: topic, size: data.size
+
+          mid = rows.length / 2
+          max = rows.length - 1
+
+          divided_rows = []
+          divided_rows << rows[0..mid-1]
+          divided_rows << rows[mid..max]
+
+          divided_rows.each {|r| publish(r)}
+        else
+          log.error "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message, size: data.size
+          raise "Failed to publish into Google Cloud Pub/Sub"
+        end
       else
         message = res_obj['messageIds'] || res.body
-        log.debug "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message
+        log.debug "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message, size: data.size
       end
     end
 
     def write(chunk)
-      publish(chunk.read)
+      rows = []
+      chunk.msgpack_each do |row|
+        rows << row
+      end
+      publish(rows)
     end
   end
 end
