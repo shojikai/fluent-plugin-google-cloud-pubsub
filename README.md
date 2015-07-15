@@ -7,7 +7,7 @@ Fluentd plugin for Google Cloud Pub/Sub
 <match dummy>
   type google_cloud_pubsub
 
-  # Configuration of Google Cloud Pub/Sub
+  # Configuration of Google Cloud Pub/Sub ([] is a default value)
   email <YOUR EMAIL>                          # required
   private_key_path <YOUR PRIVATE KEY>         # required
   project <YOUR PROJECT>                      # required
@@ -20,7 +20,5 @@ Fluentd plugin for Google Cloud Pub/Sub
 
   # Configuration of buffered output
   buffer_type memory                          # optional [memory]
-  buffer_chunk_limit 4m                       # optional [4m]
-  buffer_queue_size 128                       # optional [128]
   flush_interval 1                            # optional [1(sec)]
 ```

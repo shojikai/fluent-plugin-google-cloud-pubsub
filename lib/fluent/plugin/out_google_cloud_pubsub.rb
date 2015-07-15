@@ -6,10 +6,10 @@ module Fluent
   class GoogleCloudPubSubOutput < BufferedOutput
     Fluent::Plugin.register_output('google_cloud_pubsub', self)
 
+    MAX_REQUEST_PAYLOAD_SIZE = 10485760   # 10MB
+
     config_set_default :buffer_type, 'memory'
     config_set_default :flush_interval, 1
-    config_set_default :buffer_chunk_limit, '4m'
-    config_set_default :buffer_queue_size, 128
 
     config_param :email, :string, default: nil
     config_param :private_key_path, :string, default: nil
@@ -238,6 +238,18 @@ module Fluent
       topic = select_topic
 
       data = Base64.encode64(rows.to_json)
+
+      if data.size > MAX_REQUEST_PAYLOAD_SIZE
+          log.debug "Divide this request because a payload size exceeds the allowable limit.", topic: topic, size: data.size, length: rows.length
+          mid = rows.length / 2
+          max = rows.length - 1
+          divided_rows = []
+          divided_rows << rows[0..mid-1]
+          divided_rows << rows[mid..max]
+          divided_rows.each {|r| publish(r)}
+          return
+      end
+
       messages = [{
         #attributes: {
         #  key: "value"
@@ -258,24 +270,11 @@ module Fluent
       res_obj = extract_response_obj(res.body)
       unless res.success?
         message = res_obj['error']['message'] || res.body
-        if res.status == 400 and message.to_s =~ /Request payload exceeds the allowable limit/i and rows.length > 1
-          log.warn "Retry to publish because request payload exceeds the allowable limit.", topic: topic, size: data.size
-
-          mid = rows.length / 2
-          max = rows.length - 1
-
-          divided_rows = []
-          divided_rows << rows[0..mid-1]
-          divided_rows << rows[mid..max]
-
-          divided_rows.each {|r| publish(r)}
-        else
-          log.error "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message, size: data.size
-          raise "Failed to publish into Google Cloud Pub/Sub"
-        end
+        log.error "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message, size: data.size, length: rows.length
+        raise "Failed to publish into Google Cloud Pub/Sub"
       else
         message = res_obj['messageIds'] || res.body
-        log.debug "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message, size: data.size
+        log.debug "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message, size: data.size, length: rows.length
       end
     end
 
