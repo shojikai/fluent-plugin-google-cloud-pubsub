@@ -18,7 +18,7 @@ Fluentd plugin for Google Cloud Pub/Sub
   auto_create_subscription true               # optional [true]
   request_timeout 60                          # optional [60]
   max_payload_size 8388608                    # optional [8388608]
-  num_threads 4                               # optional [1] (This option is recommended so that Pub/Sub request take a time.)
+  num_threads 4                               # optional [1] (This option is recommended because a Pub/Sub request take some time.)
 
   # Configuration of buffered output
   buffer_type memory                          # optional [memory]

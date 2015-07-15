@@ -266,18 +266,15 @@ module Fluent
         }
       )
 
-      st = Time.now
       res_obj = extract_response_obj(res.body)
-      et = Time.now
-      req_time_usec = (et.to_i * 1000000 + et.usec) - (st.to_i * 1000000 + st.usec)
 
       unless res.success?
         message = res_obj['error']['message'] || res.body
-        log.error "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message, size: data.size, length: rows.length, req_time_usec: req_time_usec
+        log.error "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message, size: data.size, length: rows.length
         raise "Failed to publish into Google Cloud Pub/Sub"
       else
         message = res_obj['messageIds'] || res.body
-        log.debug "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message, size: data.size, length: rows.length, req_time_usec: req_time_usec
+        log.debug "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message, size: data.size, length: rows.length
       end
     end
 
