@@ -6,8 +6,6 @@ module Fluent
   class GoogleCloudPubSubOutput < BufferedOutput
     Fluent::Plugin.register_output('google_cloud_pubsub', self)
 
-    MAX_REQUEST_PAYLOAD_SIZE = 10485760   # 10MB
-
     config_set_default :buffer_type, 'memory'
     config_set_default :flush_interval, 1
 
@@ -20,6 +18,7 @@ module Fluent
     config_param :auto_create_topic, :bool, default: true
     config_param :auto_create_subscription, :bool, default: true
     config_param :request_timeout, :integer, default: 60
+    config_param :max_payload_size, :integer, default: 8388608  # 8MB
 
     unless method_defined?(:log)
       define_method("log") { $log }
@@ -239,7 +238,7 @@ module Fluent
 
       data = Base64.encode64(rows.to_json)
 
-      if data.size > MAX_REQUEST_PAYLOAD_SIZE
+      if data.size > @max_payload_size
           log.debug "Divide this request because a payload size exceeds the allowable limit.", topic: topic, size: data.size, length: rows.length
           mid = rows.length / 2
           max = rows.length - 1
@@ -267,14 +266,18 @@ module Fluent
         }
       )
 
+      st = Time.now
       res_obj = extract_response_obj(res.body)
+      et = Time.now
+      req_time_usec = (et.to_i * 1000000 + et.usec) - (st.to_i * 1000000 + st.usec)
+
       unless res.success?
         message = res_obj['error']['message'] || res.body
-        log.error "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message, size: data.size, length: rows.length
+        log.error "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message, size: data.size, length: rows.length, req_time_usec: req_time_usec
         raise "Failed to publish into Google Cloud Pub/Sub"
       else
         message = res_obj['messageIds'] || res.body
-        log.debug "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message, size: data.size, length: rows.length
+        log.debug "pubsub.projects.topics.publish", topic: topic, code: res.status, message: message, size: data.size, length: rows.length, req_time_usec: req_time_usec
       end
     end
 
